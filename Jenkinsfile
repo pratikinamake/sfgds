@@ -1,52 +1,29 @@
-
-node {
-   // This is to demo github action	
-   def sonarUrl = 'sonar.host.url=http://172.31.30.136:9000'
-   def mvn = tool (name: 'maven3', type: 'maven') + '/bin/mvn'
-   stage('SCM Checkout'){
-    // Clone repo
-	git branch: 'master', 
-	credentialsId: 'github', 
-	url: 'https://github.com/javahometech/myweb'
-   
-   }
-   
-   stage('Sonar Publish'){
-	   withCredentials([string(credentialsId: 'sonarqube', variable: 'sonarToken')]) {
-        def sonarToken = "sonar.login=${sonarToken}"
-        sh "${mvn} sonar:sonar -D${sonarUrl}  -D${sonarToken}"
-	 }
-      
-   }
-   
+node{
+     
+    stage("schem chekout"){
+      git credentialsId: 'github-crid', url: 'https://github.com/pratikinamake/sfgds.git',branch: 'uat'
+    }
+	stage("mvn install"){
+      sh 'mvn clean package'
+    }
+	 stage("build docker image"){
+       sh "docker build -t $image_name ."    
+    }
+	stage("push docker image"){
+	docker.withRegistry('http://002074205979.dkr.ecr.us-east-2.amazonaws.com', 'ecr:us-east-2:aws-ecr') {
+	docker.image('test-test').push('latest')
+            }
 	
-   stage('Mvn Package'){
-	   // Build using maven
-	   
-	   sh "${mvn} clean package deploy"
-   }
-   
-   stage('deploy-dev'){
-       def tomcatDevIp = '172.31.28.172'
-	   def tomcatHome = '/opt/tomcat8/'
-	   def webApps = tomcatHome+'webapps/'
-	   def tomcatStart = "${tomcatHome}bin/startup.sh"
-	   def tomcatStop = "${tomcatHome}bin/shutdown.sh"
-	   
-	   sshagent (credentials: ['tomcat-dev']) {
-	      sh "scp -o StrictHostKeyChecking=no target/myweb*.war ec2-user@${tomcatDevIp}:${webApps}myweb.war"
-          sh "ssh ec2-user@${tomcatDevIp} ${tomcatStop}"
-		  sh "ssh ec2-user@${tomcatDevIp} ${tomcatStart}"
        }
-   }
-   stage('Email Notification'){
-		mail bcc: '', body: """Hi Team, You build successfully deployed
-		                       Job URL : ${env.JOB_URL}
-							   Job Name: ${env.JOB_NAME}
+  sshagent(['client-2']) {
+	 sh 'ssh -t -t ec2-user@172.31.22.70 -o StrictHostKeyChecking=no "docker ps -q --filter ancestor="$image_name" | xargs -r docker stop"'
+	 sh 'ssh -t -t ec2-user@172.31.22.70 -o StrictHostKeyChecking=no "docker container prune -f"'
+	 sh 'ssh -t -t ec2-user@172.31.22.70 -o StrictHostKeyChecking=no "eval $(aws ecr get-login --no-include-email --region eu-east-2)"'
+     sh 'ssh -t -t ec2-user@172.31.22.70 -o StrictHostKeyChecking=no "docker pull 002074205979.dkr.ecr.us-east-2.amazonaws.com/test-test"'
+     sh 'ssh -t -t ec2-user@172.31.22.70 -o StrictHostKeyChecking=no "docker image tag 002074205979.dkr.ecr.us-east-2.amazonaws.com/test-test $image_name"'
+     sh 'ssh -t -t ec2-user@172.31.22.70 -o StrictHostKeyChecking=no  "docker run -d -p 80:80 $image_name"' 
+     sh 'ssh -t -t ec2-user@172.31.22.70 -o StrictHostKeyChecking=no "docker images -qf dangling=true | xargs docker rmi"'
 
-Thanks,
-DevOps Team""", cc: '', from: '', replyTo: '', subject: "${env.JOB_NAME} Success", to: 'hari.kammana@gmail.com'
-   
-   }
-}
-
+        
+               }	             
+	}	
